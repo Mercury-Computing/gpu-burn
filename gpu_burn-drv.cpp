@@ -159,12 +159,12 @@ template <class T> class GPU_Test {
     }
     ~GPU_Test() {
         bind();
-        checkError(cuMemFree(d_Cdata), "Free A");
-        checkError(cuMemFree(d_Adata), "Free B");
-        checkError(cuMemFree(d_Bdata), "Free C");
-        cuMemFreeHost(d_faultyElemsHost);
-        printf("Freed memory for dev %d\n", d_devNumber);
-        mark("freed memory");
+        // checkError(cuMemFree(d_Cdata), "Free A");
+        // checkError(cuMemFree(d_Adata), "Free B");
+        // checkError(cuMemFree(d_Bdata), "Free C");
+        // cuMemFreeHost(d_faultyElemsHost);
+        // printf("Freed memory for dev %d\n", d_devNumber);
+        // mark("freed memory");
 
         cublasDestroy(d_cublas);
         printf("Uninitted cublas\n");
