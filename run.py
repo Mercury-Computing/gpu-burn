@@ -15,7 +15,7 @@ logs = []
 signal_up = datetime.utcnow()
 load_full = None
 
-print(signal_up, " - sending signal up")
+print(signal_up, "- sending signal up")
 
 p = subprocess.Popen('./gpu_burn')
 
@@ -26,12 +26,12 @@ while datetime.utcnow() - signal_up < timedelta(seconds=duration):
   wattage = float(power_draw.strip().split(' ')[0])
   if not load_full and wattage > load_high_threshold:
     load_full = datetime.strptime(ts, '%Y/%m/%d %H:%M:%S.%f')
-    print(load_full, " - gpu load is full")
+    print(load_full, f"- gpu load is high (>{load_high_threshold}W)")
   logs.append({ 'ts': ts, 'wattage': wattage })
   time.sleep(0.1)
 
 signal_down = datetime.utcnow()
-print(signal_down, " - sending signal down")
+print(signal_down, "- sending signal down")
 p.terminate()
 
 load_low = None
@@ -43,10 +43,10 @@ while not load_empty:
   wattage = float(power_draw.strip().split(' ')[0])
   if not load_low and wattage < load_low_threshold:
     load_low = datetime.strptime(ts, '%Y/%m/%d %H:%M:%S.%f')
-    print(load_low, " - gpu load is low")
+    print(load_low, f"- gpu load is low (<{load_low_threshold}W)")
   if not load_empty and wattage < load_empty_threshold:
     load_empty = datetime.strptime(ts, '%Y/%m/%d %H:%M:%S.%f')
-    print(load_empty, " - gpu load is at baseline")
+    print(load_empty, f"- gpu load is at baseline (<{load_empty_threshold}W)")
   logs.append({ 'ts': ts, 'wattage': wattage })
   time.sleep(0.1)
 
