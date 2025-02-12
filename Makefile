@@ -38,7 +38,7 @@ IMAGE_NAME ?= gpu-burn
 
 .PHONY: clean
 
-gpu_burn: gpu_burn-drv.o compare.ptx
+gpu_burn: gpu_burn-drv.o
 	g++ -o $@ $< -O3 ${LDFLAGS}
 
 %.o: %.cpp

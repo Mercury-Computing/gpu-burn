@@ -63,7 +63,7 @@
 #define CUDA_ENABLE_DEPRECATEDC
 #include <cuda.h>
 
-void mark(std::string msg) {
+void log(std::string msg) {
     char buffer[26];
     int millisec;
     struct tm *tm_info;
@@ -78,7 +78,7 @@ void mark(std::string msg) {
 
     std::ofstream outfile;
     strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-    outfile.open("mark.log", std::ios_base::app);
+    outfile.open("out.log", std::ios_base::app);
     outfile << std::string(buffer) << "." << millisec << " - " << msg << "\n";
     outfile.close();
     return;
@@ -192,17 +192,9 @@ template <class T> class GPU_Test {
         if (useBytes < 0)
             useBytes = (ssize_t)((double)availMemory() * (-useBytes / 100.0));
 
-        printf("Initialized device %d with %lu MB of memory (%lu MB available, "
-               "using %lu MB of it), %s%s\n",
-               d_devNumber, totalMemory() / 1024ul / 1024ul,
-               availMemory() / 1024ul / 1024ul, useBytes / 1024ul / 1024ul,
-               d_doubles ? "using DOUBLES" : "using FLOATS",
-               d_tensors ? ", using Tensor Cores" : "");
         size_t d_resultSize = sizeof(T) * SIZE * SIZE;
         d_iters = (useBytes - 2 * d_resultSize) /
                   d_resultSize; // We remove A and B sizes
-        printf("Results are %zu bytes each, thus performing %zu iterations\n",
-               d_resultSize, d_iters);
         if ((size_t)useBytes < 3 * d_resultSize)
             throw std::string("Low mem for result. aborting.\n");
         checkError(cuMemAlloc(&d_Cdata, d_iters * d_resultSize), "C alloc");
@@ -273,7 +265,7 @@ template <class T> class GPU_Test {
 int initCuda() {
     try {
         checkError(cuInit(0));
-        mark("init cuda");
+        log("init cuda");
     } catch (std::runtime_error e) {
         fprintf(stderr, "Couldn't init CUDA: %s\n", e.what());
         return 0;
@@ -298,9 +290,9 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
     GPU_Test<T> *our;
     try {
         our = new GPU_Test<T>(index, doubles, tensors);
-        mark("init test");
+        log("init test");
         our->initBuffers(A, B, useBytes);
-        mark("init buffers");
+        log("init buffers");
     } catch (const std::exception &e) {
         fprintf(stderr, "Couldn't init a GPU test: %s\n", e.what());
         exit(EMEDIUMTYPE);
@@ -316,7 +308,7 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
 
         int nonWorkIters = maxEvents;
 
-        mark("start burn loop");
+        log("start burn loop");
         while (our->shouldRun()) {
             our->compute();
             checkError(cuEventRecord(events[eventIndex], 0), "Record event");
@@ -334,14 +326,14 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
             ops = our->getErrors();
             write(writeFd, &ops, sizeof(int));
         }
-        mark("end burn loop");
+        log("end burn loop");
 
         for (int i = 0; i < maxEvents; ++i)
             // cuEventSynchronize(events[i]);
             cuEventDestroy(events[i]);
-        mark("start test cleanup");
+        log("start test cleanup");
         delete our;
-        mark("test cleanup complete");
+        log("test cleanup complete");
     } catch (const std::exception &e) {
         fprintf(stderr, "Failure during compute: %s\n", e.what());
         int ops = -1;
@@ -370,7 +362,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
 
     time_t startTime = time(0);
 
-    mark("launch");
+    log("launch");
     // Initting A and B with random data
     T *A = (T *)malloc(sizeof(T) * SIZE * SIZE);
     T *B = (T *)malloc(sizeof(T) * SIZE * SIZE);
@@ -380,7 +372,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
         B[i] = (T)((double)(rand() % 1000000) / 100000.0);
     }
 
-    mark("init matrices");
+    log("init matrices");
 
     // Forking a process..  This one checks the number of devices to use,
     // returns the value, and continues to use the first one.
@@ -409,7 +401,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             close(mainPipe[1]);
             int devCount;
             read(readMain, &devCount, sizeof(int));
-            mark("sleeping1");
+            log("sleeping1");
             while ((runLength == 0 && !terminateFlag) ||
                    time(0) - startTime < runLength) {
                 sleep(1);
@@ -464,7 +456,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                     }
                 }
 
-                mark("sleeping2");
+                log("sleeping2");
                 while ((runLength == 0 && !terminateFlag) ||
                        time(0) - startTime < runLength) {
                     sleep(1);
@@ -474,7 +466,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
         for (size_t i = 0; i < clientPipes.size(); ++i)
             close(clientPipes.at(i));
     }
-    mark("killing processes");
+    log("killing processes");
     for (size_t i = 0; i < clientPids.size(); ++i) {
         kill(clientPids.at(i), SIGKILL);
     }
@@ -519,8 +511,6 @@ int main(int argc, char **argv) {
     int thisParam = 0;
     ssize_t useBytes = 0; // 0 == use USEMEM% of free mem
     int device_id = -1;
-    std::chrono::seconds sigterm_timeout_threshold_secs =
-        std::chrono::seconds(SIGTERM_TIMEOUT_THRESHOLD_SECS);
 
     std::vector<std::string> args(argv, argv + argc);
     for (size_t i = 1; i < args.size(); ++i) {
@@ -540,8 +530,6 @@ int main(int argc, char **argv) {
                 checkError(cuDeviceGetName(device_name, 255, device_l));
                 size_t device_mem_l;
                 checkError(cuDeviceTotalMem(&device_mem_l, device_l));
-                printf("ID %i: %s, %ldMB\n", i_dev, device_name,
-                       device_mem_l / 1000 / 1000);
             }
             thisParam++;
             return 0;
