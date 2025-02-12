@@ -158,7 +158,8 @@ template <class T> class GPU_Test {
         sigaction(SIGTERM, &action, NULL);
     }
     ~GPU_Test() {
-        bind();
+        mark("test cleanup start");
+        // bind();
         // checkError(cuMemFree(d_Cdata), "Free A");
         // checkError(cuMemFree(d_Adata), "Free B");
         // checkError(cuMemFree(d_Bdata), "Free C");
@@ -166,9 +167,10 @@ template <class T> class GPU_Test {
         // printf("Freed memory for dev %d\n", d_devNumber);
         // mark("freed memory");
 
-        cublasDestroy(d_cublas);
-        printf("Uninitted cublas\n");
-        mark("uninitted cuda");
+        // cublasDestroy(d_cublas);
+        // printf("Uninitted cublas\n");
+        // mark("uninitted cuda");
+        mark("test cleanup end");
     }
 
     static void termHandler(int signum) { g_running = false; }
