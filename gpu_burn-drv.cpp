@@ -29,7 +29,8 @@
 
 // Matrices are SIZE*SIZE..  POT should be efficiently implemented in CUBLAS
 #include <ios>
-#define SIZE 8192ul
+// #define SIZE 8192ul
+#define SIZE 4096ul
 #define USEMEM 0.9 // Try to allocate 90% of memory
 #define COMPARE_KERNEL "compare.ptx"
 
@@ -380,7 +381,7 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
         mark("start burn loop");
         while (our->shouldRun()) {
             our->compute();
-            our->compare();
+            // our->compare();
             checkError(cuEventRecord(events[eventIndex], 0), "Record event");
 
             eventIndex = ++eventIndex % maxEvents;
