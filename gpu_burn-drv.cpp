@@ -29,17 +29,14 @@
 
 // Matrices are SIZE*SIZE..  POT should be efficiently implemented in CUBLAS
 #include <ios>
-// #define SIZE 8192ul
 #define SIZE 2048ul
 #define USEMEM 0.9 // Try to allocate 90% of memory
-#define COMPARE_KERNEL "compare.ptx"
 
 // Used to report op/s, measured through Visual Profiler, CUBLAS from CUDA 7.5
 // (Seems that they indeed take the naive dim^3 approach)
 // #define OPS_PER_MUL 17188257792ul // Measured for SIZE = 2048
 #define OPS_PER_MUL 1100048498688ul // Extrapolated for SIZE = 8192
 
-#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -47,8 +44,6 @@
 #include <errno.h>
 #include <exception>
 #include <fstream>
-#include <map>
-#include <regex>
 #include <signal.h>
 #include <stdexcept>
 #include <string.h>
@@ -56,7 +51,6 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <thread>
 #include <time.h>
 #include <unistd.h>
 #include <vector>
@@ -134,15 +128,13 @@ bool g_running = false;
 
 template <class T> class GPU_Test {
   public:
-    GPU_Test(int dev, bool doubles, bool tensors, const char *kernelFile)
-        : d_devNumber(dev), d_doubles(doubles), d_tensors(tensors),
-          d_kernelFile(kernelFile) {
+    GPU_Test(int dev, bool doubles, bool tensors)
+        : d_devNumber(dev), d_doubles(doubles), d_tensors(tensors) {
         checkError(cuDeviceGet(&d_dev, d_devNumber));
         checkError(cuCtxCreate(&d_ctx, 0, d_dev));
 
         bind();
 
-        // checkError(cublasInit());
         checkError(cublasCreate(&d_cublas), "init");
 
         if (d_tensors)
@@ -157,21 +149,6 @@ template <class T> class GPU_Test {
         memset(&action, 0, sizeof(struct sigaction));
         action.sa_handler = termHandler;
         sigaction(SIGTERM, &action, NULL);
-    }
-    ~GPU_Test() {
-        mark("test cleanup start");
-        // bind();
-        // checkError(cuMemFree(d_Cdata), "Free A");
-        // checkError(cuMemFree(d_Adata), "Free B");
-        // checkError(cuMemFree(d_Bdata), "Free C");
-        // cuMemFreeHost(d_faultyElemsHost);
-        // printf("Freed memory for dev %d\n", d_devNumber);
-        // mark("freed memory");
-
-        // cublasDestroy(d_cublas);
-        // printf("Uninitted cublas\n");
-        // mark("uninitted cuda");
-        mark("test cleanup end");
     }
 
     static void termHandler(int signum) { g_running = false; }
@@ -233,8 +210,6 @@ template <class T> class GPU_Test {
         // Populating matrices A and B
         checkError(cuMemcpyHtoD(d_Adata, A, d_resultSize), "A -> device");
         checkError(cuMemcpyHtoD(d_Bdata, B, d_resultSize), "B -> device");
-
-        initCompareKernel();
     }
 
     void compute() {
@@ -260,47 +235,6 @@ template <class T> class GPU_Test {
                                 (float *)d_Cdata + i * SIZE * SIZE, SIZE),
                     "SGEMM");
         }
-    }
-
-    void initCompareKernel() {
-        {
-            std::ifstream f(d_kernelFile);
-            checkError(f.good() ? CUDA_SUCCESS : CUDA_ERROR_NOT_FOUND,
-                       std::string("couldn't find compare kernel: ") +
-                           d_kernelFile);
-        }
-        checkError(cuModuleLoad(&d_module, d_kernelFile), "load module");
-        checkError(cuModuleGetFunction(&d_function, d_module,
-                                       d_doubles ? "compareD" : "compare"),
-                   "get func");
-
-        checkError(cuFuncSetCacheConfig(d_function, CU_FUNC_CACHE_PREFER_L1),
-                   "L1 config");
-        checkError(cuParamSetSize(d_function, __alignof(T *) +
-                                                  __alignof(int *) +
-                                                  __alignof(size_t)),
-                   "set param size");
-        checkError(cuParamSetv(d_function, 0, &d_Cdata, sizeof(T *)),
-                   "set param");
-        checkError(cuParamSetv(d_function, __alignof(T *), &d_faultyElemData,
-                               sizeof(T *)),
-                   "set param");
-        checkError(cuParamSetv(d_function, __alignof(T *) + __alignof(int *),
-                               &d_iters, sizeof(size_t)),
-                   "set param");
-
-        checkError(cuFuncSetBlockShape(d_function, g_blockSize, g_blockSize, 1),
-                   "set block size");
-    }
-
-    void compare() {
-        checkError(cuMemsetD32Async(d_faultyElemData, 0, 1, 0), "memset");
-        checkError(cuLaunchGridAsync(d_function, SIZE / g_blockSize,
-                                     SIZE / g_blockSize, 0),
-                   "Launch grid");
-        checkError(cuMemcpyDtoHAsync(d_faultyElemsHost, d_faultyElemData,
-                                     sizeof(int), 0),
-                   "Read faultyelemdata");
     }
 
     bool shouldRun() { return g_running; }
@@ -356,10 +290,10 @@ int initCuda() {
 
 template <class T>
 void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
-               ssize_t useBytes, const char *kernelFile) {
+               ssize_t useBytes) {
     GPU_Test<T> *our;
     try {
-        our = new GPU_Test<T>(index, doubles, tensors, kernelFile);
+        our = new GPU_Test<T>(index, doubles, tensors);
         mark("init test");
         our->initBuffers(A, B, useBytes);
         mark("init buffers");
@@ -381,7 +315,6 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
         mark("start burn loop");
         while (our->shouldRun()) {
             our->compute();
-            // our->compare();
             checkError(cuEventRecord(events[eventIndex], 0), "Record event");
 
             eventIndex = ++eventIndex % maxEvents;
@@ -415,292 +348,9 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
     }
 }
 
-int pollTemp(pid_t *p) {
-    int tempPipe[2];
-    pipe(tempPipe);
-
-    pid_t myPid = fork();
-
-    if (!myPid) {
-        close(tempPipe[0]);
-        dup2(tempPipe[1], STDOUT_FILENO);
-#if IS_JETSON
-        execlp("tegrastats", "tegrastats", "--interval", "5000", NULL);
-        fprintf(stderr, "Could not invoke tegrastats, no temps available\n");
-#else
-        execlp("nvidia-smi", "nvidia-smi", "-l", "5", "-q", "-d", "TEMPERATURE",
-               NULL);
-        fprintf(stderr, "Could not invoke nvidia-smi, no temps available\n");
-#endif
-
-        exit(ENODEV);
-    }
-
-    *p = myPid;
-    close(tempPipe[1]);
-
-    return tempPipe[0];
-}
-
-void updateTemps(int handle, std::vector<int> *temps) {
-    const int readSize = 10240;
-    static int gpuIter = 0;
-    char data[readSize + 1];
-
-    int curPos = 0;
-    do {
-        read(handle, data + curPos, sizeof(char));
-    } while (data[curPos++] != '\n');
-
-    data[curPos - 1] = 0;
-
-#if IS_JETSON
-    std::string data_str(data);
-    std::regex pattern("GPU@([0-9]+)C");
-    std::smatch matches;
-    if (std::regex_search(data_str, matches, pattern)) {
-        if (matches.size() > 1) {
-            int tempValue = std::stoi(matches[1]);
-            temps->at(gpuIter) = tempValue;
-            gpuIter = (gpuIter + 1) % (temps->size());
-        }
-    }
-#else
-    // FIXME: The syntax of this print might change in the future..
-    int tempValue;
-    if (sscanf(data,
-               "		GPU Current Temp			: %d C",
-               &tempValue) == 1) {
-        temps->at(gpuIter) = tempValue;
-        gpuIter = (gpuIter + 1) % (temps->size());
-    } else if (!strcmp(data, "		Gpu				"
-                             "	 : N/A"))
-        gpuIter =
-            (gpuIter + 1) %
-            (temps->size()); // We rotate the iterator for N/A values as well
-#endif
-}
-
-void listenClients(std::vector<int> clientFd, std::vector<pid_t> clientPid,
-                   int runTime,
-                   std::chrono::seconds sigterm_timeout_threshold_secs) {
-    fd_set waitHandles;
-
-    pid_t tempPid;
-    int tempHandle = pollTemp(&tempPid);
-    int maxHandle = tempHandle;
-
-    FD_ZERO(&waitHandles);
-    FD_SET(tempHandle, &waitHandles);
-
-    for (size_t i = 0; i < clientFd.size(); ++i) {
-        if (clientFd.at(i) > maxHandle)
-            maxHandle = clientFd.at(i);
-        FD_SET(clientFd.at(i), &waitHandles);
-    }
-
-    std::vector<int> clientTemp;
-    std::vector<int> clientErrors;
-    std::vector<int> clientCalcs;
-    std::vector<struct timespec> clientUpdateTime;
-    std::vector<float> clientGflops;
-    std::vector<bool> clientFaulty;
-
-    time_t startTime = time(0);
-
-    for (size_t i = 0; i < clientFd.size(); ++i) {
-        clientTemp.push_back(0);
-        clientErrors.push_back(0);
-        clientCalcs.push_back(0);
-        struct timespec thisTime;
-        clock_gettime(CLOCK_REALTIME, &thisTime);
-        clientUpdateTime.push_back(thisTime);
-        clientGflops.push_back(0.0f);
-        clientFaulty.push_back(false);
-    }
-
-    int changeCount;
-    float nextReport = 10.0f;
-    bool childReport = false;
-    while (
-        (changeCount = select(maxHandle + 1, &waitHandles, NULL, NULL, NULL))) {
-        size_t thisTime = time(0);
-        struct timespec thisTimeSpec;
-        clock_gettime(CLOCK_REALTIME, &thisTimeSpec);
-
-        // Going through all descriptors
-        for (size_t i = 0; i < clientFd.size(); ++i)
-            if (FD_ISSET(clientFd.at(i), &waitHandles)) {
-                // First, reading processed
-                int processed, errors;
-                int res = read(clientFd.at(i), &processed, sizeof(int));
-                if (res < sizeof(int)) {
-                    fprintf(stderr, "read[%zu] error %d", i, res);
-                    processed = -1;
-                }
-                // Then errors
-                read(clientFd.at(i), &errors, sizeof(int));
-
-                clientErrors.at(i) += errors;
-                if (processed == -1)
-                    clientCalcs.at(i) = -1;
-                else {
-                    double flops = (double)processed * (double)OPS_PER_MUL;
-                    struct timespec clientPrevTime = clientUpdateTime.at(i);
-                    double clientTimeDelta =
-                        (double)thisTimeSpec.tv_sec +
-                        (double)thisTimeSpec.tv_nsec / 1000000000.0 -
-                        ((double)clientPrevTime.tv_sec +
-                         (double)clientPrevTime.tv_nsec / 1000000000.0);
-                    clientUpdateTime.at(i) = thisTimeSpec;
-
-                    clientGflops.at(i) =
-                        (double)((unsigned long long int)processed *
-                                 OPS_PER_MUL) /
-                        clientTimeDelta / 1000.0 / 1000.0 / 1000.0;
-                    clientCalcs.at(i) += processed;
-                }
-
-                childReport = true;
-            }
-
-        if (FD_ISSET(tempHandle, &waitHandles))
-            updateTemps(tempHandle, &clientTemp);
-
-        // Resetting the listeners
-        FD_ZERO(&waitHandles);
-        FD_SET(tempHandle, &waitHandles);
-        for (size_t i = 0; i < clientFd.size(); ++i)
-            FD_SET(clientFd.at(i), &waitHandles);
-
-        // Printing progress (if a child has initted already)
-        if (childReport) {
-            float elapsed =
-                fminf((float)(thisTime - startTime) / (float)runTime * 100.0f,
-                      100.0f);
-            printf("\r%.1f%%  ", elapsed);
-            printf("proc'd: ");
-            for (size_t i = 0; i < clientCalcs.size(); ++i) {
-                printf("%d (%.0f Gflop/s) ", clientCalcs.at(i),
-                       clientGflops.at(i));
-                if (i != clientCalcs.size() - 1)
-                    printf("- ");
-            }
-            printf("  errors: ");
-            for (size_t i = 0; i < clientErrors.size(); ++i) {
-                std::string note = "%d ";
-                if (clientCalcs.at(i) == -1)
-                    note += " (DIED!)";
-                else if (clientErrors.at(i))
-                    note += " (WARNING!)";
-
-                printf(note.c_str(), clientErrors.at(i));
-                if (i != clientCalcs.size() - 1)
-                    printf("- ");
-            }
-            printf("  temps: ");
-            for (size_t i = 0; i < clientTemp.size(); ++i) {
-                printf(clientTemp.at(i) != 0 ? "%d C " : "-- ",
-                       clientTemp.at(i));
-                if (i != clientCalcs.size() - 1)
-                    printf("- ");
-            }
-
-            fflush(stdout);
-
-            for (size_t i = 0; i < clientErrors.size(); ++i)
-                if (clientErrors.at(i))
-                    clientFaulty.at(i) = true;
-
-            if (nextReport < elapsed) {
-                nextReport = elapsed + 10.0f;
-                printf("\n\tSummary at:   ");
-                fflush(stdout);
-                system("date"); // Printing a date
-                fflush(stdout);
-                printf("\n");
-                for (size_t i = 0; i < clientErrors.size(); ++i)
-                    clientErrors.at(i) = 0;
-            }
-        }
-
-        // Checking whether all clients are dead
-        bool oneAlive = false;
-        for (size_t i = 0; i < clientCalcs.size(); ++i)
-            if (clientCalcs.at(i) != -1)
-                oneAlive = true;
-        if (!oneAlive) {
-            fprintf(stderr, "\n\nNo clients are alive!  Aborting\n");
-            exit(ENOMEDIUM);
-        }
-
-        if (startTime + runTime < thisTime)
-            break;
-    }
-
-    printf("\nKilling processes with SIGTERM (soft kill)\n");
-    fflush(stdout);
-    for (size_t i = 0; i < clientPid.size(); ++i)
-        kill(clientPid.at(i), SIGTERM);
-
-    kill(tempPid, SIGTERM);
-
-    // processes should be terminated by SIGTERM within threshold time (so wait
-    // and then check pids)
-    std::this_thread::sleep_for(sigterm_timeout_threshold_secs);
-
-    // check each process and see if they are alive
-    std::vector<int> killed_processes; // track the number of killed processes
-    // loop through pids for each client / GPU
-    for (size_t i = 0; i < clientPid.size(); ++i) {
-        int status;
-        pid_t return_pid = waitpid(clientPid.at(i), &status, WNOHANG);
-        if (return_pid == clientPid.at(i)) {
-            /* child is finished. exit status in status */
-            killed_processes.push_back(return_pid);
-        }
-    }
-    // handle the tempPid
-    int status;
-    pid_t return_pid = waitpid(tempPid, &status, WNOHANG);
-    if (return_pid == tempPid) {
-        /* child is finished. exit status in status */
-        killed_processes.push_back(return_pid);
-    }
-
-    // number of killed process should be number GPUs + 1 (need to add tempPid
-    // process) to exit while loop early
-    if (killed_processes.size() != clientPid.size() + 1) {
-        printf("\nKilling processes with SIGKILL (force kill)\n");
-
-        for (size_t i = 0; i < clientPid.size(); ++i) {
-            // check if pid was already killed with SIGTERM before using SIGKILL
-            if (std::find(killed_processes.begin(), killed_processes.end(),
-                          clientPid.at(i)) == killed_processes.end())
-                kill(clientPid.at(i), SIGKILL);
-        }
-
-        // check if pid was already killed with SIGTERM before using SIGKILL
-        if (std::find(killed_processes.begin(), killed_processes.end(),
-                      tempPid) == killed_processes.end())
-            kill(tempPid, SIGKILL);
-    }
-
-    close(tempHandle);
-
-    while (wait(NULL) != -1)
-        ;
-    printf("done\n");
-
-    printf("\nTested %d GPUs:\n", (int)clientPid.size());
-    for (size_t i = 0; i < clientPid.size(); ++i)
-        printf("\tGPU %d: %s\n", (int)i, clientFaulty.at(i) ? "FAULTY" : "OK");
-}
-
 template <class T>
 void launch(int runLength, bool useDoubles, bool useTensorCores,
-            ssize_t useBytes, int device_id, const char *kernelFile,
-            std::chrono::seconds sigterm_timeout_threshold_secs) {
+            ssize_t useBytes, int device_id) {
 #if IS_JETSON
     std::ifstream f_model("/proc/device-tree/model");
     std::stringstream ss_model;
@@ -742,7 +392,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             int devCount = 1;
             write(writeFd, &devCount, sizeof(int));
             startBurn<T>(device_id, writeFd, A, B, useDoubles, useTensorCores,
-                         useBytes, kernelFile);
+                         useBytes);
             close(writeFd);
             return;
         } else {
@@ -750,8 +400,6 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             close(mainPipe[1]);
             int devCount;
             read(readMain, &devCount, sizeof(int));
-            // listenClients(clientPipes, clientPids, runLength,
-            //               sigterm_timeout_threshold_secs);
             mark("sleeping1");
             while (time(0) - startTime < runLength) {
                 sleep(1);
@@ -768,8 +416,8 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             int devCount = initCuda();
             write(writeFd, &devCount, sizeof(int));
 
-            startBurn<T>(0, writeFd, A, B, useDoubles, useTensorCores, useBytes,
-                         kernelFile);
+            startBurn<T>(0, writeFd, A, B, useDoubles, useTensorCores,
+                         useBytes);
 
             close(writeFd);
             return;
@@ -796,7 +444,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                         close(slavePipe[0]);
                         initCuda();
                         startBurn<T>(i, slavePipe[1], A, B, useDoubles,
-                                     useTensorCores, useBytes, kernelFile);
+                                     useTensorCores, useBytes);
 
                         close(slavePipe[1]);
                         return;
@@ -806,8 +454,6 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                     }
                 }
 
-                // listenClients(clientPipes, clientPids, runLength,
-                //               sigterm_timeout_threshold_secs);
                 mark("sleeping2");
                 while (time(0) - startTime < runLength) {
                     sleep(1);
@@ -821,9 +467,6 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
     for (size_t i = 0; i < clientPids.size(); ++i) {
         kill(clientPids.at(i), SIGKILL);
     }
-
-    // free(A);
-    // free(B);
 }
 
 void showHelp() {
@@ -836,11 +479,6 @@ void showHelp() {
     printf("-tc\tTry to use Tensor cores\n");
     printf("-l\tLists all GPUs in the system\n");
     printf("-i N\tExecute only on GPU N\n");
-    printf("-c FILE\tUse FILE as compare kernel.  Default is %s\n",
-           COMPARE_KERNEL);
-    printf("-stts T\tSet timeout threshold to T seconds for using SIGTERM to "
-           "abort child processes before using SIGKILL.  Default is %d\n",
-           SIGTERM_TIMEOUT_THRESHOLD_SECS);
     printf("-h\tShow this help message\n\n");
     printf("Examples:\n");
     printf("  gpu-burn -d 3600 # burns all GPUs with doubles for an hour\n");
@@ -870,7 +508,6 @@ int main(int argc, char **argv) {
     int thisParam = 0;
     ssize_t useBytes = 0; // 0 == use USEMEM% of free mem
     int device_id = -1;
-    char *kernelFile = (char *)COMPARE_KERNEL;
     std::chrono::seconds sigterm_timeout_threshold_secs =
         std::chrono::seconds(SIGTERM_TIMEOUT_THRESHOLD_SECS);
 
@@ -941,38 +578,20 @@ int main(int argc, char **argv) {
                 exit(EINVAL);
             }
         }
-        if (argc >= 2 && strncmp(argv[i], "-c", 2) == 0) {
-            thisParam++;
-
-            if (argv[i + 1]) {
-                kernelFile = argv[i + 1];
-                thisParam++;
-            }
-        }
-        if (argc >= 2 && strncmp(argv[i], "-stts", 2) == 0) {
-            thisParam++;
-
-            if (argv[i + 1]) {
-                sigterm_timeout_threshold_secs =
-                    std::chrono::seconds(atoi(argv[i + 1]));
-                thisParam++;
-            }
-        }
     }
 
     if (argc - thisParam < 2)
         printf("Run length not specified in the command line. ");
     else
         runLength = atoi(argv[1 + thisParam]);
-    printf("Using compare file: %s\n", kernelFile);
     printf("Burning for %d seconds.\n", runLength);
 
     if (useDoubles)
         launch<double>(runLength, useDoubles, useTensorCores, useBytes,
-                       device_id, kernelFile, sigterm_timeout_threshold_secs);
+                       device_id);
     else
         launch<float>(runLength, useDoubles, useTensorCores, useBytes,
-                      device_id, kernelFile, sigterm_timeout_threshold_secs);
+                      device_id);
 
     return 0;
 }
