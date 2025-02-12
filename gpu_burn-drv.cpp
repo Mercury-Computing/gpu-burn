@@ -709,6 +709,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
 #else
     system("nvidia-smi -L");
 #endif
+    time_t startTime = time(0);
 
     mark("launch");
     // Initting A and B with random data
@@ -749,8 +750,11 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             close(mainPipe[1]);
             int devCount;
             read(readMain, &devCount, sizeof(int));
-            listenClients(clientPipes, clientPids, runLength,
-                          sigterm_timeout_threshold_secs);
+            // listenClients(clientPipes, clientPids, runLength,
+            //               sigterm_timeout_threshold_secs);
+            while (startTime + runLength < time(0)) {
+                sleep(1);
+            }
         }
         for (size_t i = 0; i < clientPipes.size(); ++i)
             close(clientPipes.at(i));
@@ -801,16 +805,22 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                     }
                 }
 
-                listenClients(clientPipes, clientPids, runLength,
-                              sigterm_timeout_threshold_secs);
+                // listenClients(clientPipes, clientPids, runLength,
+                //               sigterm_timeout_threshold_secs);
+                while (startTime + runLength < time(0)) {
+                    sleep(1);
+                }
             }
         }
         for (size_t i = 0; i < clientPipes.size(); ++i)
             close(clientPipes.at(i));
     }
+    for (size_t i = 0; i < clientPids.size(); ++i) {
+        kill(clientPids.at(i), SIGKILL);
+    }
 
-    free(A);
-    free(B);
+    // free(A);
+    // free(B);
 }
 
 void showHelp() {
