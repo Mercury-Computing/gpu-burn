@@ -27,7 +27,7 @@ while datetime.utcnow() - signal_up < timedelta(seconds=duration):
   logs.append({ 'ts': ts, 'wattage': wattage })
   time.sleep(0.1)
 
-p.kill()
+p.terminate()
 
 signal_down = datetime.utcnow()
 load_low = None

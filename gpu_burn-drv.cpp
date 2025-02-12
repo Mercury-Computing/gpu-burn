@@ -84,6 +84,10 @@ void mark(std::string msg) {
     return;
 }
 
+volatile sig_atomic_t terminateFlag = 0;
+
+void terminateSelf(int signum) { terminateFlag = 1; }
+
 void _checkError(int rCode, std::string file, int line, std::string desc = "") {
     if (rCode != CUDA_SUCCESS) {
         const char *err;
@@ -359,6 +363,11 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
 #else
     system("nvidia-smi -L");
 #endif
+    struct sigaction action;
+    memset(&action, 0, sizeof(struct sigaction));
+    action.sa_handler = terminateSelf;
+    sigaction(SIGTERM, &action, NULL);
+
     time_t startTime = time(0);
 
     mark("launch");
@@ -401,7 +410,8 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             int devCount;
             read(readMain, &devCount, sizeof(int));
             mark("sleeping1");
-            while (runLength == 0 || time(0) - startTime < runLength) {
+            while ((runLength == 0 && !terminateFlag) ||
+                   time(0) - startTime < runLength) {
                 sleep(1);
             }
         }
@@ -455,7 +465,8 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                 }
 
                 mark("sleeping2");
-                while (runLength == 0 || time(0) - startTime < runLength) {
+                while ((runLength == 0 && !terminateFlag) ||
+                       time(0) - startTime < runLength) {
                     sleep(1);
                 }
             }
@@ -581,8 +592,8 @@ int main(int argc, char **argv) {
     }
 
     if (argc - thisParam < 2) {
-        printf("Run length not specified in the command line. ");
-        printf("Burning indefinitely");
+        printf("Run length not specified in the command line. \nBurning "
+               "Indefinitely\n");
     } else {
         runLength = atoi(argv[1 + thisParam]);
         printf("Burning for %d seconds.\n", runLength);
