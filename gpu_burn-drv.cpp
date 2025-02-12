@@ -752,8 +752,8 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             read(readMain, &devCount, sizeof(int));
             // listenClients(clientPipes, clientPids, runLength,
             //               sigterm_timeout_threshold_secs);
-            mark("sleeping");
-            while (startTime + runLength < time(0)) {
+            mark("sleeping1");
+            while (startTime - time(0) < runLength) {
                 sleep(1);
             }
         }
@@ -808,8 +808,8 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
 
                 // listenClients(clientPipes, clientPids, runLength,
                 //               sigterm_timeout_threshold_secs);
-                mark("sleeping");
-                while (startTime + runLength < time(0)) {
+                mark("sleeping2");
+                while (startTime - time(0) < runLength) {
                     sleep(1);
                 }
             }
