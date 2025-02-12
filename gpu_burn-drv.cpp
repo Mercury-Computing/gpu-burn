@@ -401,7 +401,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
             int devCount;
             read(readMain, &devCount, sizeof(int));
             mark("sleeping1");
-            while (time(0) - startTime < runLength) {
+            while (runLength == 0 || time(0) - startTime < runLength) {
                 sleep(1);
             }
         }
@@ -455,7 +455,7 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                 }
 
                 mark("sleeping2");
-                while (time(0) - startTime < runLength) {
+                while (runLength == 0 || time(0) - startTime < runLength) {
                     sleep(1);
                 }
             }
@@ -502,7 +502,7 @@ ssize_t decodeUSEMEM(const char *s) {
 }
 
 int main(int argc, char **argv) {
-    int runLength = 10;
+    int runLength = 0;
     bool useDoubles = false;
     bool useTensorCores = false;
     int thisParam = 0;
@@ -580,11 +580,13 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (argc - thisParam < 2)
+    if (argc - thisParam < 2) {
         printf("Run length not specified in the command line. ");
-    else
+        printf("Burning indefinitely");
+    } else {
         runLength = atoi(argv[1 + thisParam]);
-    printf("Burning for %d seconds.\n", runLength);
+        printf("Burning for %d seconds.\n", runLength);
+    }
 
     if (useDoubles)
         launch<double>(runLength, useDoubles, useTensorCores, useBytes,

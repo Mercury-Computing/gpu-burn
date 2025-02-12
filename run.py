@@ -1,11 +1,11 @@
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import sys
 
-duration = '10'
+duration = 10
 if len(sys.argv) > 1:
-  duration = sys.argv[1]
+  duration = int(sys.argv[1])
 
 load_high_threshold = 340
 load_low_threshold = 90
@@ -15,9 +15,10 @@ logs = []
 signal_up = datetime.utcnow()
 load_full = None
 
-p = subprocess.Popen(['./gpu_burn', duration])
+p = subprocess.Popen('./gpu_burn')
 
-while p.poll() is None:
+while datetime.utcnow() - signal_up < timedelta(seconds=duration):
+# while p.poll() is None:
   out = subprocess.check_output(['nvidia-smi', '--query-gpu=timestamp,power.draw', '--format=csv']).decode()
   ts, power_draw = out.split('\n')[-2].split(',')
   wattage = float(power_draw.strip().split(' ')[0])
@@ -25,6 +26,8 @@ while p.poll() is None:
     load_full = datetime.strptime(ts, '%Y/%m/%d %H:%M:%S.%f')
   logs.append({ 'ts': ts, 'wattage': wattage })
   time.sleep(0.1)
+
+p.kill()
 
 signal_down = datetime.utcnow()
 load_low = None
