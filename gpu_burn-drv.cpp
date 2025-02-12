@@ -37,7 +37,6 @@
 // #define OPS_PER_MUL 17188257792ul // Measured for SIZE = 2048
 #define OPS_PER_MUL 1100048498688ul // Extrapolated for SIZE = 8192
 
-#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
