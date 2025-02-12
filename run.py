@@ -15,7 +15,7 @@ logs = []
 signal_up = datetime.utcnow()
 load_full = None
 
-p = subprocess.Popen(['./gpu_burn', '-stts', '0', duration])
+p = subprocess.Popen(['./gpu_burn', duration])
 
 while p.poll() is None:
   out = subprocess.check_output(['nvidia-smi', '--query-gpu=timestamp,power.draw', '--format=csv']).decode()
