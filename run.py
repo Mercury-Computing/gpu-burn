@@ -43,10 +43,10 @@ while not load_empty:
   wattage = float(power_draw.strip().split(' ')[0])
   if not load_low and wattage < load_low_threshold:
     load_low = datetime.strptime(ts, '%Y/%m/%d %H:%M:%S.%f')
-    print(load_full, " - gpu load is low")
+    print(load_low, " - gpu load is low")
   if not load_empty and wattage < load_empty_threshold:
     load_empty = datetime.strptime(ts, '%Y/%m/%d %H:%M:%S.%f')
-    print(load_full, " - gpu load is at baseline")
+    print(load_empty, " - gpu load is at baseline")
   logs.append({ 'ts': ts, 'wattage': wattage })
   time.sleep(0.1)
 

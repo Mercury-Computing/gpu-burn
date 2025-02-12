@@ -347,14 +347,6 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
 template <class T>
 void launch(int runLength, bool useDoubles, bool useTensorCores,
             ssize_t useBytes, int device_id) {
-#if IS_JETSON
-    std::ifstream f_model("/proc/device-tree/model");
-    std::stringstream ss_model;
-    ss_model << f_model.rdbuf();
-    printf("%s\n", ss_model.str().c_str());
-#else
-    system("nvidia-smi -L");
-#endif
     struct sigaction action;
     memset(&action, 0, sizeof(struct sigaction));
     action.sa_handler = terminateSelf;
@@ -580,11 +572,11 @@ int main(int argc, char **argv) {
     }
 
     if (argc - thisParam < 2) {
-        printf("Run length not specified in the command line. \nBurning "
-               "Indefinitely\n");
+        log("Run length not specified in the command line. \nBurning "
+            "Indefinitely");
     } else {
         runLength = atoi(argv[1 + thisParam]);
-        printf("Burning for %d seconds.\n", runLength);
+        log("Burning for " + std::to_string(runLength) + " seconds.");
     }
 
     if (useDoubles)
