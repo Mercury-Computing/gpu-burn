@@ -8,7 +8,7 @@ if len(sys.argv) > 1:
   duration = sys.argv[1]
 
 load_high_threshold = 340
-load_low_threshold = 100
+load_low_threshold = 90
 load_empty_threshold = 40
 
 logs = []
@@ -43,7 +43,7 @@ while not load_empty:
 
 print('\n'.join([f'{l["ts"]}, {l["wattage"]}' for l in logs]))
 print(f'signal up: {signal_up}')
-print(f'load high (>340W): {load_full} (+{str(load_full - signal_up)})')
+print(f'load high (>{load_high_threshold}W): {load_full} (+{str(load_full - signal_up)})')
 print(f'signal down: {signal_down} (+{str(signal_down - signal_up)})')
-print(f'load low (<100W): {load_low} (+{str(load_low - signal_down)})')
-print(f'load empty (<40W): {load_empty} (+{str(load_empty - signal_down)})')
+print(f'load low (<{load_low_threshold}W): {load_low} (+{str(load_low - signal_down)})')
+print(f'load empty (<{load_empty_threshold}W): {load_empty} (+{str(load_empty - signal_down)})')
