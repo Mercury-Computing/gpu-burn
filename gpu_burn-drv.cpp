@@ -42,6 +42,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <errno.h>
 #include <exception>
 #include <fstream>
@@ -68,9 +69,22 @@
 #include <cuda.h>
 
 void mark(std::string msg) {
+    char buffer[26];
+    int millisec;
+    struct tm *tm_info;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    millisec = lrint(tv.tv_usec / 1000.0);
+    if (millisec >= 1000) {
+        millisec -= 1000;
+        tv.tv_sec++;
+    }
+    tm_info = localtime(&tv.tv_sec);
+
     std::ofstream outfile;
+    strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
     outfile.open("mark.log", std::ios_base::app);
-    outfile << system("date +%T.%N") << " - " << msg;
+    outfile << std::string(buffer) << "." << millisec << " - " << msg << "\n";
     outfile.close();
     return;
 }
@@ -383,7 +397,8 @@ void startBurn(int index, int writeFd, T *A, T *B, bool doubles, bool tensors,
         mark("end burn loop");
 
         for (int i = 0; i < maxEvents; ++i)
-            cuEventSynchronize(events[i]);
+            // cuEventSynchronize(events[i]);
+            cuEventDestroy(events[i]);
         mark("start test cleanup");
         delete our;
         mark("test cleanup complete");
