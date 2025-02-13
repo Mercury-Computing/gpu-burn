@@ -44,9 +44,6 @@ gpu_burn: gpu_burn-drv.o
 %.o: %.cpp
 	g++ ${CFLAGS} -c $<
 
-%.ptx: %.cu
-	PATH="${PATH}:${CCPATH}:." ${NVCC} ${NVCCFLAGS} -ptx $< -o $@
-
 clean:
 	$(RM) *.ptx *.o gpu_burn
 

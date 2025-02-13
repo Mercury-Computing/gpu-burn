@@ -12,7 +12,6 @@ RUN make
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-${IMAGE_DISTRO}
 
 COPY --from=builder /build/gpu_burn /app/
-COPY --from=builder /build/compare.ptx /app/
 
 WORKDIR /app
 
